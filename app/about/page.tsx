@@ -18,30 +18,7 @@ export default function AboutPage() {
       </section>
 
 
-      {/* NAVBAR */}
-      <nav className="border-y border-white/10 bg-black/80 backdrop-blur">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="h-[50px] sm:h-[60px] flex items-center justify-center">
-            <div className="flex flex-wrap items-center justify-center gap-x-3 sm:gap-x-6 lg:gap-x-10 gap-y-1 text-xs sm:text-sm lg:text-[15px] tracking-wide text-white/80">
-
-              <a className="hover:text-white transition" href="/">Home</a>
-
-              <a className="hover:text-white transition" href="/join">Join</a>
-
-              <a className="hover:text-white transition" href="/register">Register</a>
-
-              <a className="hover:text-white transition" href="/exclusive">Exclusive</a>
-
-              <a className="text-white" href="/about">About</a>
-
-              <a className="hover:text-white transition" href="/contact">Contact Us</a>
-
-              <a className="hover:text-white transition" href="/complaint">Raise Complaint</a>
-
-            </div>
-          </div>
-        </div>
-      </nav>
+    
 
 
 

@@ -1,12 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import { supabase } from "@/lib/supabaseClient";
-
-type NetworkMode = "instagram" | "gmail" | "whatsapp" | "telegram";
-type IdentifierType = "instagram" | "email" | "whatsapp" | "telegram";
-type FieldKey = NetworkMode | "password";
 
 type ExclusiveGroup = {
   id: string;
@@ -17,137 +13,167 @@ type ExclusiveGroup = {
 
 type Profile = {
   id: string;
-  payment_status: "pending" | "verified" | "rejected";
-  is_member: boolean;
+  name: string;
 };
+
+type Subscription = {
+  id: string;
+  network_mode: string;
+  status: string;
+};
+
+const PLATFORM_ICONS: Record<string, string> = {
+  instagram: "📸",
+  telegram: "✈️",
+  whatsapp: "💬",
+  gmail: "📧",
+};
+
+const PLATFORM_LABELS: Record<string, string> = {
+  instagram: "Instagram",
+  telegram: "Telegram",
+  whatsapp: "WhatsApp",
+  gmail: "Gmail",
+};
+
+// "gmail" platform in exclusive group = any active member can apply
+const OPEN_PLATFORM = "gmail";
 
 export default function ExclusiveApplyPage() {
   const params = useParams<{ id: string }>();
   const groupId = params?.id;
 
   const [group, setGroup] = useState<ExclusiveGroup | null>(null);
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [activeSubs, setActiveSubs] = useState<Subscription[]>([]);
+  const [loading, setLoading] = useState(true);
 
-  const [mode, setMode] = useState<NetworkMode>("instagram");
-  const [allowedPlatforms, setAllowedPlatforms] = useState<NetworkMode[]>(["instagram"]);
-
-  const [fields, setFields] = useState<Record<FieldKey, string>>({
-    instagram: "",
-    gmail: "",
-    whatsapp: "",
-    telegram: "",
-    password: "",
-  });
+  // Which network the user picks to apply with
+  const [selectedNetwork, setSelectedNetwork] = useState<string>("");
 
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState<
-    null | { type: "success" | "not_registered" | "not_member" | "error"; message: string }
-  >(null);
+  const [result, setResult] = useState<null | { type: "success" | "error" | "warning"; message: string }>(null);
 
   useEffect(() => {
     if (!groupId) return;
 
-    async function loadGroup() {
-      const { data, error } = await supabase
+    async function load() {
+      setLoading(true);
+
+      // Load group
+      const { data: groupData } = await supabase
         .from("exclusive_groups")
         .select("id, title, price, platforms")
         .eq("id", groupId)
         .maybeSingle();
 
-      if (error) {
-        console.error("Error loading exclusive group:", error);
-        return;
+      if (groupData) setGroup((groupData as any) as ExclusiveGroup);
+
+      // Load profile — prefer Supabase session, fall back to localStorage
+      let profileId: string | null = null;
+
+      const { data: { session } } = await supabase.auth.getSession();
+      if (session?.user?.email) {
+        const { data: profileByEmail } = await supabase
+          .from("profiles")
+          .select("id, name")
+          .eq("email", session.user.email)
+          .maybeSingle();
+        if (profileByEmail) {
+          setProfile((profileByEmail as any) as Profile);
+          profileId = (profileByEmail as any).id;
+          // Keep localStorage in sync
+          localStorage.setItem("cityring_profile_id", profileId!);
+        }
       }
 
-      const g = (data as any) as ExclusiveGroup;
-      setGroup(g);
+      // Fallback to localStorage if session didn't work
+      if (!profileId) {
+        profileId = localStorage.getItem("cityring_profile_id");
+        if (profileId) {
+          const { data: profileById } = await supabase
+            .from("profiles")
+            .select("id, name")
+            .eq("id", profileId)
+            .maybeSingle();
+          if (profileById) setProfile((profileById as any) as Profile);
+        }
+      }
 
-      const raw = (g?.platforms || []).map((p) => String(p).toLowerCase());
-      const normalized = raw.filter((p) => ["instagram", "gmail", "whatsapp", "telegram"].includes(p));
-      const uniq = Array.from(new Set(normalized)) as NetworkMode[];
-      const fallback: NetworkMode[] = uniq.length ? uniq : ["instagram"];
+      // Load user's active subscriptions
+      if (profileId) {
+        const { data: subs } = await supabase
+          .from("subscriptions")
+          .select("id, network_mode, status")
+          .eq("profile_id", profileId)
+          .eq("status", "active");
 
-      setAllowedPlatforms(fallback);
-      setMode((prev) => (fallback.includes(prev) ? prev : fallback[0]));
+        setActiveSubs(((subs as any) || []) as Subscription[]);
+      }
+
+      setLoading(false);
     }
 
-    loadGroup();
+    load();
   }, [groupId]);
 
-  function updateField(key: FieldKey, value: string) {
-    setFields((p) => ({ ...p, [key]: value }));
-  }
+  // Compute which networks the user CAN apply with for this group
+  const eligibleNetworks: string[] = (() => {
+    if (!group || activeSubs.length === 0) return [];
 
-  const requiredKeys = useMemo(() => [mode, "password"] as const, [mode]);
+    const groupPlatforms = group.platforms || [];
 
-  const formValid = useMemo(() => {
-    if (!groupId) return false;
-    for (const k of requiredKeys) {
-      const v = fields[k];
-      if (!v || !v.trim()) return false;
+    // If group has "gmail" platform → any active membership qualifies
+    if (groupPlatforms.includes(OPEN_PLATFORM)) {
+      return activeSubs.map((s) => s.network_mode);
     }
-    return true;
-  }, [fields, requiredKeys, groupId]);
 
-  async function findProfileByEnteredContact(): Promise<Profile | null> {
-    const value =
-      mode === "instagram"
-        ? fields.instagram.trim()
-        : mode === "gmail"
-        ? fields.gmail.trim()
-        : mode === "whatsapp"
-        ? fields.whatsapp.trim()
-        : fields.telegram.trim();
+    // Otherwise → only subscriptions matching the group's platforms
+    return activeSubs
+      .filter((s) => groupPlatforms.includes(s.network_mode))
+      .map((s) => s.network_mode);
+  })();
 
-    if (!value) return null;
+  const isEligible = eligibleNetworks.length > 0;
 
-    const identifierType: IdentifierType = mode === "gmail" ? "email" : mode;
-
-    const { data, error } = await supabase.rpc("verify_profile_password", {
-      _identifier_type: identifierType,
-      _identifier_value: value,
-      _password: fields.password,
-    });
-
-    if (error) throw error;
-
-    const row = Array.isArray(data) ? data[0] : data;
-    return (row as Profile) || null;
-  }
+  // Auto-select if only one option
+  useEffect(() => {
+    if (eligibleNetworks.length === 1 && !selectedNetwork) {
+      setSelectedNetwork(eligibleNetworks[0]);
+    }
+  }, [eligibleNetworks.join(",")]);
 
   async function submit() {
-    if (!formValid || !groupId || submitting) return;
-
+    if (!groupId || submitting) return;
     setSubmitting(true);
     setResult(null);
 
     try {
-      const profile = await findProfileByEnteredContact();
+      const profileId = profile?.id || localStorage.getItem("cityring_profile_id");
 
-      if (!profile) {
-        setResult({
-          type: "not_registered",
-          message: "Not registered or wrong password. Please register and become a member first.",
-        });
+      if (!profileId || !profile) {
+        setResult({ type: "warning", message: "You need to be logged in to apply. Please login first." });
         setSubmitting(false);
         return;
       }
 
-      // Member check (your same rule)
-      const isActiveMember = profile.is_member === true && profile.payment_status === "verified";
-      if (!isActiveMember) {
-        setResult({
-          type: "not_member",
-          message: "You must be a verified member before applying to exclusive groups.",
-        });
+      if (!isEligible) {
+        setResult({ type: "warning", message: "You do not have an active membership on the required network(s) for this group." });
         setSubmitting(false);
         return;
       }
 
-      // Save application
+      if (!selectedNetwork) {
+        setResult({ type: "warning", message: "Please select which network you want to apply with." });
+        setSubmitting(false);
+        return;
+      }
+
       const { error: appErr } = await supabase.from("exclusive_applications").insert({
-        profile_id: profile.id,
+        profile_id: profileId,
         exclusive_group_id: groupId,
         status: "pending",
+        network_mode: selectedNetwork,
       });
 
       if (appErr) {
@@ -160,240 +186,210 @@ export default function ExclusiveApplyPage() {
         return;
       }
 
-      setResult({ type: "success", message: "✅ Application sent successfully!" });
+      setResult({ type: "success", message: "✅ Application sent successfully! Admin will reach out via your selected network." });
       setSubmitting(false);
     } catch (e: any) {
       console.error("Exclusive apply error:", e);
-      setResult({ type: "error", message: e?.message || "Something went wrong." });
+      setResult({ type: "error", message: e?.message || "Something went wrong. Please try again." });
       setSubmitting(false);
     }
   }
 
+  const RULES = [
+    ["1. Respect the Circle", "Every ring is built on mutual respect. Members must interact with courtesy, professionalism, and consideration at all times. Harassment, intimidation, or disrespectful behavior will not be tolerated."],
+    ["2. Use CityRing for Genuine Connection Only", "CityRing exists to foster meaningful, interest-based connections. It must not be used for spamming, unsolicited promotions, mass messaging, or unrelated commercial activities without authorization."],
+    ["3. No Misrepresentation", "Members must provide truthful and accurate information. Creating fake identities, impersonating others, or misrepresenting affiliation, profession, or intent is strictly prohibited."],
+    ["4. Protect Privacy and Confidentiality", "Information shared within a ring is expected to remain within that circle. Members must not share, publish, or distribute private conversations, member details, or group content outside the platform without permission."],
+    ["5. No Abuse, Hate, or Harmful Content", "CityRing maintains zero tolerance for hate speech, discrimination, threats, explicit content, or any form of harmful or illegal activity."],
+    ["6. No Unauthorized Commercial Solicitation", "Members may not use CityRing primarily to sell products, promote services, or recruit for unrelated ventures without prior approval from CityRing."],
+    ["7. One Person, One Membership", "Each membership is intended for a single individual. Sharing accounts, transferring memberships, or allowing others to operate under your identity is not permitted."],
+    ["8. Follow Platform and Community Guidelines", "Members must follow any specific guidelines established for individual rings, as well as all general platform policies."],
+    ["9. Compliance with Applicable Laws", "All members are responsible for ensuring their conduct complies with applicable local, national, and international laws."],
+    ["10. Enforcement and Right to Remove Access", "CityRing reserves the right to suspend or permanently revoke membership, remove access to rings, or take appropriate action if any member violates these rules or acts against the spirit of the platform."],
+  ];
+
   return (
     <main className="min-h-screen text-white">
-      {/* Premium background (match Join/Home vibe) */}
-      <div className="fixed inset-0 -z-10 bg-[#07070A]">
-        <div className="absolute inset-0 bg-[radial-gradient(1200px_600px_at_20%_10%,rgba(255,255,255,0.10),transparent_60%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(900px_500px_at_80%_30%,rgba(255,255,255,0.08),transparent_55%)]" />
-        <div className="absolute inset-0 bg-[radial-gradient(900px_500px_at_50%_100%,rgba(255,255,255,0.06),transparent_60%)]" />
-        <div className="absolute inset-0 opacity-30 bg-[linear-gradient(to_bottom,transparent,rgba(255,255,255,0.04))]" />
+      {/* Ultra-premium background */}
+      <div className="fixed inset-0 -z-10 bg-[#06060A]">
+        <div className="absolute inset-0 bg-[radial-gradient(1400px_700px_at_15%_5%,rgba(212,175,55,0.07),transparent_60%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(900px_500px_at_85%_30%,rgba(255,255,255,0.05),transparent_55%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(800px_400px_at_50%_90%,rgba(212,175,55,0.04),transparent_60%)]" />
       </div>
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-12 md:py-16">
-        <a
-          href={`/exclusive/${groupId ?? ""}`}
-          className="inline-flex items-center gap-2 text-sm text-white/70 hover:text-white transition"
-        >
-          <span className="text-white/60">←</span> Back
+        <a href={`/exclusive/${groupId ?? ""}`} className="inline-flex items-center gap-2 text-sm text-white/60 hover:text-white transition">
+          ← Back
         </a>
 
         <div className="mt-6 flex items-end justify-between flex-wrap gap-6">
           <div>
-            <div className="inline-flex items-center gap-2 rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs text-white/80 backdrop-blur">
-              <span className="h-2 w-2 rounded-full bg-blue-500/80" />
+            <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/8 px-3 py-1 text-xs text-amber-200/80 backdrop-blur">
+              <span className="h-2 w-2 rounded-full bg-amber-400" />
               Exclusive application
             </div>
-
             <h1 className="mt-4 text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight">Apply</h1>
-
-            <p className="mt-2 text-white/70">
+            <p className="mt-2 text-white/60">
               {group ? (
-                <>
-                  Applying for <span className="font-semibold text-white">{group.title}</span>
-                  <span className="text-white/45"> • </span>
-                  Price: <span className="font-semibold text-white">₹{group.price}</span>
+                <>Applying for <span className="font-semibold text-white">{group.title}</span>
+                  <span className="text-white/35"> • </span>
+                  Price: <span className="font-semibold text-amber-300">₹{group.price}</span>
                 </>
-              ) : (
-                "Loading group..."
-              )}
+              ) : "Loading group..."}
             </p>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur px-5 py-4">
-            <p className="text-xs text-white/60">Status</p>
-            <p className="mt-1 text-sm font-semibold text-white">Member-only</p>
-            <p className="mt-1 text-xs text-white/55">Verified members can apply</p>
+          <div className="rounded-2xl border border-white/8 bg-white/4 backdrop-blur px-5 py-4">
+            <p className="text-xs text-white/50">Access</p>
+            <p className="mt-1 text-sm font-semibold text-white/90">Member-only</p>
+            <p className="mt-1 text-xs text-white/45">Active members only</p>
           </div>
         </div>
 
-        <div className="mt-8 rounded-2xl sm:rounded-3xl border border-white/10 bg-white/5 backdrop-blur shadow-sm overflow-hidden">
+        {/* Application form */}
+        <div className="mt-8 rounded-3xl border border-white/8 bg-white/4 backdrop-blur shadow-sm overflow-hidden">
           <div className="p-6 md:p-8">
-            <h2 className="text-xl font-semibold tracking-tight">Enter details</h2>
-            <p className="mt-2 text-sm text-white/65">
-              Use the same contact + password you used while registering.
-            </p>
-
-            {allowedPlatforms.length > 1 ? (
-              <div className="mt-5 grid grid-cols-2 sm:grid-cols-4 gap-3">
-                {allowedPlatforms.includes("instagram") && (
-                  <ModeButton active={mode === "instagram"} onClick={() => setMode("instagram")}>
-                    Instagram
-                  </ModeButton>
-                )}
-                {allowedPlatforms.includes("gmail") && (
-                  <ModeButton active={mode === "gmail"} onClick={() => setMode("gmail")}>
-                    Gmail
-                  </ModeButton>
-                )}
-                {allowedPlatforms.includes("whatsapp") && (
-                  <ModeButton active={mode === "whatsapp"} onClick={() => setMode("whatsapp")}>
-                    WhatsApp
-                  </ModeButton>
-                )}
-                {allowedPlatforms.includes("telegram") && (
-                  <ModeButton active={mode === "telegram"} onClick={() => setMode("telegram")}>
-                    Telegram
-                  </ModeButton>
-                )}
-              </div>
+            {loading ? (
+              <p className="text-sm text-white/50 animate-pulse">Loading...</p>
             ) : (
-              <div className="mt-5 text-sm text-white/65">
-                This group supports: <span className="font-semibold text-white">{allowedPlatforms[0]}</span>
-              </div>
-            )}
-
-            <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {mode === "instagram" && (
-                <Field label="Instagram Username *">
-                  <input
-                    value={fields.instagram}
-                    onChange={(e) => updateField("instagram", e.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white placeholder:text-white/40 outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-white/15"
-                    placeholder="eg: yourhandle"
-                  />
-                </Field>
-              )}
-
-              {mode === "gmail" && (
-                <Field label="Gmail / Email *">
-                  <input
-                    value={fields.gmail}
-                    onChange={(e) => updateField("gmail", e.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white placeholder:text-white/40 outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-white/15"
-                    placeholder="eg: you@gmail.com"
-                  />
-                </Field>
-              )}
-
-              {mode === "whatsapp" && (
-                <Field label="WhatsApp Number *">
-                  <input
-                    value={fields.whatsapp}
-                    onChange={(e) => updateField("whatsapp", e.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white placeholder:text-white/40 outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-white/15"
-                    placeholder="eg: +91 9876543210"
-                  />
-                </Field>
-              )}
-
-              {mode === "telegram" && (
-                <Field label="Telegram Username/Number *">
-                  <input
-                    value={fields.telegram}
-                    onChange={(e) => updateField("telegram", e.target.value)}
-                    className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white placeholder:text-white/40 outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-white/15"
-                    placeholder="eg: @username"
-                  />
-                </Field>
-              )}
-
-              <Field label="Password *">
-                <input
-                  type="password"
-                  value={fields.password}
-                  onChange={(e) => updateField("password", e.target.value)}
-                  className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white placeholder:text-white/40 outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-white/15"
-                  placeholder="Enter your password"
-                />
-              </Field>
-            </div>
-
-            {result && (
-              <div
-                className={`mt-6 rounded-2xl border px-4 py-3 text-sm ${
-                  result.type === "success"
-                    ? "border-emerald-500/20 bg-emerald-500/10 text-emerald-200"
-                    : result.type === "not_registered"
-                    ? "border-amber-500/20 bg-amber-500/10 text-amber-200"
-                    : result.type === "not_member"
-                    ? "border-blue-500/20 bg-blue-500/10 text-blue-200"
-                    : "border-red-500/20 bg-red-500/10 text-red-200"
-                }`}
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="leading-relaxed">{result.message}</div>
-                </div>
-
-                {result.type === "not_member" && (
-                  <div className="mt-4">
-                    <a
-                      href="/register"
-                      className="inline-flex items-center justify-center rounded-2xl px-4 py-2 font-semibold bg-white text-black hover:bg-white/90 transition"
-                    >
-                      Become a Member
-                    </a>
+              <>
+                {/* Who is applying */}
+                {profile ? (
+                  <div className="flex items-center gap-3 rounded-2xl border border-white/8 bg-black/30 px-4 py-3">
+                    <div className="h-9 w-9 rounded-full bg-amber-500/15 border border-amber-500/20 flex items-center justify-center text-sm font-bold text-amber-300">
+                      {profile.name?.charAt(0)?.toUpperCase() || "?"}
+                    </div>
+                    <div>
+                      <div className="text-sm font-medium text-white">{profile.name}</div>
+                      <div className="text-xs text-white/45">Applying as this account</div>
+                    </div>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-amber-500/20 bg-amber-500/8 px-4 py-3 text-sm text-amber-200">
+                    You are not logged in. Please{" "}
+                    <a href="/login" className="underline font-semibold">login</a> first to apply.
                   </div>
                 )}
-              </div>
+
+                {/* Network eligibility section */}
+                {profile && !loading && (
+                  <div className="mt-6">
+                    {!isEligible ? (
+                      <div className="rounded-2xl border border-red-500/20 bg-red-500/8 px-4 py-4 text-sm text-red-300">
+                        <p className="font-semibold">Not eligible for this group</p>
+                        <p className="mt-1 text-red-300/80">
+                          This exclusive group requires an active membership on:{" "}
+                          <span className="font-semibold text-red-200">
+                            {group?.platforms?.map((p) => PLATFORM_LABELS[p] || p).join(", ")}
+                          </span>.
+                          {" "}Your active memberships are on:{" "}
+                          <span className="font-semibold text-red-200">
+                            {activeSubs.length > 0
+                              ? activeSubs.map((s) => PLATFORM_LABELS[s.network_mode] || s.network_mode).join(", ")
+                              : "none"}
+                          </span>.
+                        </p>
+                        <a href="/membership/renew" className="mt-3 inline-block text-xs underline text-red-300/70 hover:text-red-200">
+                          Get the right membership →
+                        </a>
+                      </div>
+                    ) : (
+                      <div>
+                        <label className="text-sm font-medium text-white/80">
+                          Apply via network
+                        </label>
+                        <p className="mt-1 text-xs text-white/45">
+                          Select which of your active memberships to apply with.
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {eligibleNetworks.map((net) => (
+                            <button
+                              key={net}
+                              type="button"
+                              onClick={() => setSelectedNetwork(net)}
+                              className={[
+                                "px-4 py-2.5 rounded-2xl border text-sm font-medium transition",
+                                selectedNetwork === net
+                                  ? "border-amber-500/40 bg-amber-500/15 text-amber-200"
+                                  : "border-white/10 bg-white/5 text-white/70 hover:bg-white/8",
+                              ].join(" ")}
+                            >
+                              {PLATFORM_ICONS[net] || ""} {PLATFORM_LABELS[net] || net}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Result message */}
+                {result && (
+                  <div className={`mt-6 rounded-2xl border px-4 py-3 text-sm ${
+                    result.type === "success" ? "border-emerald-500/20 bg-emerald-500/8 text-emerald-300"
+                    : result.type === "warning" ? "border-amber-500/20 bg-amber-500/8 text-amber-200"
+                    : "border-red-500/20 bg-red-500/8 text-red-300"
+                  }`}>
+                    {result.message}
+                    {result.type === "warning" && !profile && (
+                      <div className="mt-3">
+                        <a href="/login" className="inline-flex items-center justify-center rounded-xl px-4 py-2 font-semibold bg-white text-black hover:bg-white/90 transition text-sm">
+                          Login →
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Submit button */}
+                {result?.type !== "success" && (
+                  <button
+                    onClick={submit}
+                    disabled={!profile || submitting || !isEligible || !selectedNetwork}
+                    className={[
+                      "mt-6 w-full px-6 py-3 rounded-2xl font-semibold transition",
+                      profile && isEligible && selectedNetwork && !submitting
+                        ? "bg-white text-black hover:bg-amber-50 shadow-sm"
+                        : "bg-white/8 border border-white/8 cursor-not-allowed text-white/40",
+                    ].join(" ")}
+                    type="button"
+                  >
+                    {submitting ? "Submitting..." : "Apply Now"}
+                  </button>
+                )}
+
+                <p className="mt-3 text-xs text-white/40">
+                  Payment will be handled personally after approval by admin.
+                </p>
+              </>
             )}
-
-            <button
-              onClick={submit}
-              disabled={!formValid || submitting}
-              className={[
-                "mt-6 w-full px-4 sm:px-6 py-3 rounded-2xl font-semibold transition",
-                formValid && !submitting
-                  ? "bg-white text-black hover:bg-white/90 shadow-sm"
-                  : "bg-white/10 border border-white/10 cursor-not-allowed text-white/60 shadow-none",
-              ].join(" ")}
-              type="button"
-            >
-              {submitting ? "Submitting..." : "Done"}
-            </button>
-
-            <p className="mt-3 text-xs text-white/55">
-              Payment will be handled personally after approval.
-            </p>
           </div>
 
-          <div className="border-t border-white/10 bg-black/20 px-4 sm:px-6 py-4 text-xs text-white/60">
-            If you applied already, you’ll see a confirmation message. Admin will respond soon.
+          <div className="border-t border-white/8 bg-black/20 px-4 sm:px-6 py-4 text-xs text-white/50">
+            Already applied? You'll see a confirmation message. Admin will respond soon.
+          </div>
+        </div>
+
+        {/* Rules & Regulations */}
+        <div className="mt-14 rounded-3xl border border-white/8 bg-white/4 backdrop-blur shadow-sm p-8">
+          <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/20 bg-amber-500/8 px-3 py-1 text-xs text-amber-200/70 backdrop-blur mb-4">
+            <span className="h-2 w-2 rounded-full bg-amber-400/70" />
+            Platform Rules
+          </div>
+          <h2 className="text-xl font-bold text-white">CityRing — Rules & Regulations</h2>
+          <p className="mt-3 text-white/55 text-sm">
+            To preserve the integrity and experience of every circle, all members are expected to follow these principles.
+          </p>
+          <div className="mt-6 space-y-5 text-sm leading-relaxed">
+            {RULES.map(([title, body]) => (
+              <div key={title}>
+                <h3 className="font-semibold text-white/90">{title}</h3>
+                <p className="mt-1.5 text-white/50">{body}</p>
+              </div>
+            ))}
           </div>
         </div>
       </div>
     </main>
-  );
-}
-
-function ModeButton({
-  active,
-  onClick,
-  children,
-}: {
-  active: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      className={`rounded-2xl border px-4 py-3 text-sm font-medium transition outline-none focus:ring-2 focus:ring-white/10 ${
-        active
-          ? "border-blue-500/40 bg-blue-500/10 text-blue-200"
-          : "border-white/10 bg-black/35 hover:bg-black/55 text-white/80"
-      }`}
-      type="button"
-    >
-      {children}
-    </button>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <label className="block">
-      <span className="text-sm font-medium text-white/80">{label}</span>
-      <div className="mt-2">{children}</div>
-    </label>
   );
 }

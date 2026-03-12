@@ -1,115 +1,120 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { supabase } from "../../../lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";
+
+const ADMIN_EMAIL = "likith200305@gmail.com";
+const ADMIN_PASSWORD = process.env.NEXT_PUBLIC_ADMIN_PASSWORD || "admin123";
 
 export default function AdminLoginPage() {
   const router = useRouter();
-  const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-
+  const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  const [msg, setMsg] = useState<string | null>(null);
-
-  const canSubmit = useMemo(() => {
-    return email.trim().length > 3 && password.length >= 6 && !busy;
-  }, [email, password, busy]);
+  const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    // If already logged in, go to dashboard
-    supabase.auth.getSession().then(({ data }) => {
-      if (data.session) router.replace("/admin");
-    });
+    async function checkAuth() {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (session?.user?.email === ADMIN_EMAIL) {
+          router.replace("/admin");
+        } else {
+          setChecking(false);
+        }
+      } catch (err) {
+        setChecking(false);
+      }
+    }
+    checkAuth();
   }, [router]);
 
   async function signIn() {
-    if (!canSubmit) return;
+    setError(null);
+    if (!password) {
+      setError("Enter password");
+      return;
+    }
+
+    if (password !== ADMIN_PASSWORD) {
+      setError("Incorrect password");
+      return;
+    }
+
     setBusy(true);
-    setMsg(null);
 
     try {
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
+      const { error: signInError } = await supabase.auth.signInWithPassword({
+        email: ADMIN_EMAIL,
+        password: ADMIN_PASSWORD,
       });
-      if (error) throw error;
 
-      const userEmail = data.user?.email;
-      if (!userEmail) throw new Error("No email on this user.");
-
-      // Ensure this user is in admins table
-      const { data: adminRow, error: adminErr } = await supabase
-        .from("admins")
-        .select("email")
-        .eq("email", userEmail)
-        .maybeSingle();
-
-      if (adminErr) throw adminErr;
-
-      if (!adminRow) {
-        await supabase.auth.signOut();
-        throw new Error("This account is not an admin.");
+      if (signInError) {
+        setError(`Login failed: ${signInError.message}`);
+        setBusy(false);
+        return;
       }
 
       router.replace("/admin");
-    } catch (e: any) {
-      console.error(e);
-      setMsg(e?.message || "Login failed.");
-    } finally {
+    } catch (err: any) {
+      setError(err?.message || "Login failed");
       setBusy(false);
     }
   }
 
+  if (checking) {
+    return (
+      <main className="min-h-screen bg-[#07070A] text-white flex items-center justify-center px-4">
+        <div className="text-white/40 text-sm animate-pulse">Checking...</div>
+      </main>
+    );
+  }
+
   return (
-    <main className="min-h-screen bg-zinc-50 text-zinc-900 flex items-center justify-center px-4 sm:px-6">
-      <div className="w-full max-w-md bg-white border rounded-2xl p-6 shadow-sm">
-        <h1 className="text-3xl font-bold">Admin login</h1>
-        <p className="mt-2 text-sm text-zinc-600">
-          Sign in with your Supabase Auth admin email + password.
-        </p>
+    <main className="min-h-screen bg-[#07070A] text-white flex items-center justify-center px-4">
+      <div className="w-full max-w-sm">
+        <div className="rounded-2xl border border-white/10 bg-white/5 backdrop-blur p-8">
+          <h1 className="text-2xl font-bold tracking-tight">Admin Login</h1>
+          <p className="mt-2 text-sm text-white/50">CityRing admin panel access.</p>
 
-        {msg && (
-          <div className="mt-4 text-sm rounded-xl border border-red-200 bg-red-50 text-red-800 px-4 py-3">
-            {msg}
-          </div>
-        )}
-
-        <div className="mt-6 space-y-4">
-          <div>
-            <label className="text-sm font-medium">Email</label>
-            <input
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              className="mt-1 w-full px-4 py-3 rounded-xl border bg-white"
-              placeholder="admin@example.com"
-              type="email"
-              autoComplete="email"
-            />
-          </div>
-
-          <div>
-            <label className="text-sm font-medium">Password</label>
-            <input
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              className="mt-1 w-full px-4 py-3 rounded-xl border bg-white"
-              placeholder="••••••••"
-              type="password"
-              autoComplete="current-password"
-            />
-            <div className="mt-2 text-xs text-zinc-500">
-              If you don’t have a password yet, create the admin user in Supabase Auth first.
+          <div className="mt-6 space-y-4">
+            <div className="text-sm text-white/60 bg-white/5 p-3 rounded-xl border border-white/10">
+              Email: <span className="font-mono text-white">{ADMIN_EMAIL}</span>
             </div>
-          </div>
 
-          <button
-            onClick={signIn}
-            disabled={!canSubmit}
-            className="w-full px-5 py-3 rounded-xl bg-zinc-900 text-white hover:bg-zinc-800 disabled:opacity-60"
-          >
-            {busy ? "Signing in…" : "Sign in"}
-          </button>
+            <label className="block">
+              <span className="text-sm font-medium text-white/80">Password</span>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && signIn()}
+                disabled={busy}
+                autoFocus
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white placeholder:text-white/40 outline-none focus:ring-2 focus:ring-blue-500/50 disabled:opacity-50"
+                placeholder="••••••••"
+              />
+            </label>
+
+            {error && (
+              <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3 text-sm text-red-200">
+                {error}
+              </div>
+            )}
+
+            <button
+              onClick={signIn}
+              disabled={busy}
+              className={`w-full py-3 rounded-2xl font-semibold transition ${
+                busy
+                  ? "bg-white/10 text-white/40 cursor-not-allowed"
+                  : "bg-white text-black hover:bg-white/90"
+              }`}
+            >
+              {busy ? "Signing in…" : "Sign in"}
+            </button>
+          </div>
         </div>
       </div>
     </main>

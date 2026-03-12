@@ -7,7 +7,7 @@ import { FaInstagram, FaWhatsapp, FaTelegramPlane, FaGlobe } from "react-icons/f
 type NetworkMode = "instagram" | "whatsapp" | "telegram" | "all";
 
 type Plan = {
-  id: string; // ✅ from DB (not limited to p99/p199 etc)
+  id: string;
   price: number;
   group_limit: number;
   title: string;
@@ -30,37 +30,58 @@ export default function RegisterPage() {
     confirmPassword: "",
   });
 
-  // ✅ NEW: plans from DB
   const [plans, setPlans] = useState<Plan[]>([]);
   const [plansLoading, setPlansLoading] = useState(true);
-
-  // ✅ plan selection
   const [planId, setPlanId] = useState<string>("");
-
   const [submitting, setSubmitting] = useState(false);
+
+  // Inline error/info message instead of alerts
+  const [message, setMessage] = useState<{
+    type: "error" | "info" | "success";
+    text: string;
+    action?: { label: string; href: string };
+  } | null>(null);
 
   useEffect(() => {
     async function loadPlans() {
       setPlansLoading(true);
-
       const { data, error } = await supabase
         .from("membership_plans")
         .select("id,title,subtitle,price,group_limit,is_active,sort_order")
         .eq("is_active", true)
         .order("sort_order", { ascending: true });
-
       if (error) {
         console.error("Failed to load plans:", error);
         setPlans([]);
       } else {
         setPlans((data as any) || []);
       }
-
       setPlansLoading(false);
     }
-
     loadPlans();
   }, []);
+
+  // Auto-check email when user finishes typing it
+  useEffect(() => {
+    if (!form.email || !form.email.includes("@")) return;
+    const timer = setTimeout(async () => {
+      const { data } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("email", form.email.trim().toLowerCase())
+        .maybeSingle();
+      if (data) {
+        setMessage({
+          type: "info",
+          text: "This email is already registered.",
+          action: { label: "Sign in instead →", href: "/login" },
+        });
+      } else {
+        setMessage(null);
+      }
+    }, 600);
+    return () => clearTimeout(timer);
+  }, [form.email]);
 
   const requiredFields = useMemo(() => {
     if (mode === "instagram") return ["name", "dob", "instagram"] as const;
@@ -74,25 +95,17 @@ export default function RegisterPage() {
   }, [plans, planId]);
 
   const isValid = useMemo(() => {
-    // must pick plan
-    if (!planId) return false;
-
-    // must have plans loaded (avoid selecting stale)
-    if (plansLoading) return false;
-
-    // ✅ Email required
+    if (!planId || plansLoading) return false;
     if (!form.email || !form.email.trim()) return false;
-
+    if (message?.type === "info") return false; // block if email already exists
     for (const key of requiredFields) {
       const v = (form as any)[key] as string;
       if (!v || !v.trim()) return false;
     }
-
     if (!form.password || form.password.length < 6) return false;
     if (form.password !== form.confirmPassword) return false;
-
     return true;
-  }, [form, requiredFields, planId, plansLoading]);
+  }, [form, requiredFields, planId, plansLoading, message]);
 
   function updateField(key: keyof typeof form, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -100,34 +113,57 @@ export default function RegisterPage() {
 
   async function handlePayNow() {
     if (!isValid || submitting) return;
-    if (!selectedPlan) {
-      alert("Please select a plan.");
-      return;
-    }
+    if (!selectedPlan) return;
 
     setSubmitting(true);
+    setMessage(null);
 
     try {
       const cleanEmail = form.email.trim().toLowerCase();
 
-      // ✅ 1) Create Supabase Auth user
+      // Double-check email doesn't exist
+      const { data: existingProfile } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("email", cleanEmail)
+        .maybeSingle();
+
+      if (existingProfile) {
+        setMessage({
+          type: "info",
+          text: "This email is already registered.",
+          action: { label: "Sign in to your account →", href: "/login" },
+        });
+        setSubmitting(false);
+        return;
+      }
+
+      // Create Supabase Auth user
       const { error: signUpError } = await supabase.auth.signUp({
         email: cleanEmail,
         password: form.password,
       });
 
       if (signUpError) {
-        console.error("Auth signUp failed:", {
-          message: signUpError?.message,
-          status: (signUpError as any)?.status,
-          raw: signUpError,
-        });
-        alert(`Registration failed (Auth): ${signUpError.message}`);
+        // Supabase returns this when email already exists in auth
+        if (
+          signUpError.message.toLowerCase().includes("already") ||
+          signUpError.message.toLowerCase().includes("registered") ||
+          (signUpError as any)?.status === 400
+        ) {
+          setMessage({
+            type: "info",
+            text: "This email already has an account.",
+            action: { label: "Sign in instead →", href: "/login" },
+          });
+        } else {
+          setMessage({ type: "error", text: `Registration failed: ${signUpError.message}` });
+        }
         setSubmitting(false);
         return;
       }
 
-      // ✅ 2) Create profile via RPC (your existing logic)
+      // Create profile via RPC
       const rpcPayload: any = {
         _name: form.name.trim(),
         _dob: form.dob,
@@ -139,32 +175,17 @@ export default function RegisterPage() {
         _plan_id: selectedPlan.id,
         _plan_price: selectedPlan.price,
         _password: form.password,
-
-        // OPTIONAL: only enable if your RPC accepts it
-        // _plan_group_limit: selectedPlan.group_limit,
       };
 
       const { data, error } = await supabase.rpc("create_profile_with_password", rpcPayload);
 
       if (error) {
-        console.error("Profile insert failed:", {
-          message: error?.message,
-          details: (error as any)?.details,
-          hint: (error as any)?.hint,
-          code: (error as any)?.code,
-          raw: error,
-        });
-        alert(
-          `Registration failed: ${error.message}\n\nIf you enabled RLS, you must add policies or temporarily turn RLS off for profiles while testing.`
-        );
+        setMessage({ type: "error", text: `Registration failed: ${error.message}` });
         setSubmitting(false);
         return;
       }
 
-      // ✅ Store profile id for payment step
       localStorage.setItem("cityring_profile_id", String(data));
-
-      // ✅ Store selected plan for payment step (subscriptions upsert)
       localStorage.setItem(
         "selectedPlan",
         JSON.stringify({
@@ -175,50 +196,35 @@ export default function RegisterPage() {
         })
       );
 
-      // Optional: store draft for payment preview
       const { password, confirmPassword, ...safeForm } = form;
-      const draft = {
-        mode,
-        ...safeForm,
-        plan_id: selectedPlan.id,
-        plan_price: selectedPlan.price,
-        plan_group_limit: selectedPlan.group_limit,
-      };
-      localStorage.setItem("cityring_register_draft", JSON.stringify(draft));
+      localStorage.setItem(
+        "cityring_register_draft",
+        JSON.stringify({
+          mode,
+          ...safeForm,
+          plan_id: selectedPlan.id,
+          plan_price: selectedPlan.price,
+          plan_group_limit: selectedPlan.group_limit,
+        })
+      );
 
       window.location.href = "/register/payment";
     } catch (e: any) {
-      console.error(e);
-      alert("Something went wrong. Please try again.");
+      setMessage({ type: "error", text: "Something went wrong. Please try again." });
       setSubmitting(false);
     }
   }
 
   return (
     <main className="min-h-screen text-white">
-      {/* Premium background (same vibe as Join/Home/Payment) */}
       <div className="fixed inset-0 -z-10 bg-[#07070A]">
         <div className="absolute inset-0 bg-[radial-gradient(1200px_600px_at_20%_10%,rgba(255,255,255,0.10),transparent_60%)]" />
         <div className="absolute inset-0 bg-[radial-gradient(900px_500px_at_80%_30%,rgba(255,255,255,0.08),transparent_55%)]" />
         <div className="absolute inset-0 bg-[radial-gradient(900px_500px_at_50%_100%,rgba(255,255,255,0.06),transparent_60%)]" />
         <div className="absolute inset-0 opacity-30 bg-[linear-gradient(to_bottom,transparent,rgba(255,255,255,0.04))]" />
       </div>
-      {/* NAVBAR */}
-      <nav className="border-y border-white/10 bg-black/80 backdrop-blur">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="h-[50px] sm:h-[60px] flex items-center justify-center">
-            <div className="flex flex-wrap items-center justify-center gap-x-3 sm:gap-x-6 lg:gap-x-10 gap-y-1 text-xs sm:text-sm lg:text-[15px] tracking-wide text-white/80">
-              <a className="hover:text-white transition" href="/">Home</a>
-              <a className="hover:text-white transition" href="/join">Join</a>
-              <a className="hover:text-white transition" href="/register">Register</a>
-              <a className="hover:text-white transition" href="/exclusive">Exclusive</a>
-              <a className="hover:text-white transition" href="/about">About</a>
-              <a className="hover:text-white transition" href="/contact">Contact Us</a>
-              <a className="hover:text-white transition" href="/complaint">Raise Complaint</a>
-            </div>
-          </div>
-        </div>
-      </nav>
+
+       
 
       <div className="max-w-3xl mx-auto px-4 sm:px-6 py-12 md:py-16">
         {/* Header */}
@@ -228,7 +234,6 @@ export default function RegisterPage() {
               <span className="h-2 w-2 rounded-full bg-blue-500/80" />
               Membership
             </div>
-
             <h1 className="mt-4 text-2xl sm:text-3xl md:text-4xl font-semibold tracking-tight">Register</h1>
             <p className="mt-2 text-white/70 max-w-2xl">
               Choose how you want to network, fill your details, then complete payment.
@@ -242,21 +247,23 @@ export default function RegisterPage() {
               {selectedPlan ? selectedPlan.title : "—"}
             </p>
             <p className="mt-1 text-xs text-white/55">
-              Fee:{" "}
-              <span className="text-white font-semibold">
-                ₹{selectedPlan ? selectedPlan.price : "--"}
-              </span>
+              Fee: <span className="text-white font-semibold">₹{selectedPlan ? selectedPlan.price : "--"}</span>
               {"  "}•{"  "}
-              Limit:{" "}
-              <span className="text-white font-semibold">
-                {selectedPlan ? selectedPlan.group_limit : "--"}
-              </span>
+              Limit: <span className="text-white font-semibold">{selectedPlan ? selectedPlan.group_limit : "--"}</span>
             </p>
           </div>
         </div>
 
+        {/* Already have account banner */}
+        <div className="mt-8 rounded-2xl border border-white/10 bg-white/5 px-5 py-4 flex items-center justify-between gap-4">
+          <p className="text-sm text-white/60">Already have an account?</p>
+          <a href="/login" className="text-sm font-semibold text-white hover:text-white/80 transition">
+            Sign in →
+          </a>
+        </div>
+
         {/* Mode Selector */}
-        <div className="mt-10 rounded-2xl sm:rounded-3xl border border-white/10 bg-white/5 backdrop-blur shadow-sm overflow-hidden">
+        <div className="mt-6 rounded-2xl sm:rounded-3xl border border-white/10 bg-white/5 backdrop-blur shadow-sm overflow-hidden">
           <div className="p-6">
             <h2 className="text-xl font-semibold tracking-tight">How would you like to network?</h2>
             <p className="mt-2 text-sm text-white/65">
@@ -267,21 +274,17 @@ export default function RegisterPage() {
               <ModeButton active={mode === "instagram"} onClick={() => setMode("instagram")} icon={<FaInstagram />}>
                 Instagram
               </ModeButton>
-
               <ModeButton active={mode === "whatsapp"} onClick={() => setMode("whatsapp")} icon={<FaWhatsapp />}>
                 WhatsApp
               </ModeButton>
-
               <ModeButton active={mode === "telegram"} onClick={() => setMode("telegram")} icon={<FaTelegramPlane />}>
                 Telegram
               </ModeButton>
-
               <ModeButton active={mode === "all"} onClick={() => setMode("all")} icon={<FaGlobe />}>
                 All Three
               </ModeButton>
             </div>
           </div>
-
           <div className="border-t border-white/10 bg-black/20 px-4 sm:px-6 py-4 text-xs text-white/60">
             Tip: You can change the mode anytime before payment.
           </div>
@@ -323,18 +326,15 @@ export default function RegisterPage() {
                           Join up to <span className="font-semibold text-white">{p.group_limit}</span> groups
                         </div>
                       </div>
-
                       <div className={`text-lg font-bold ${active ? "text-blue-200" : "text-white"}`}>
                         ₹{p.price}
                       </div>
                     </div>
-
                     {active && (
                       <div className="mt-4 flex items-center justify-between">
-                        <div className="text-xs text-blue-200 font-medium">Selected</div>
+                        <div className="text-xs text-blue-200 font-medium">✓ Selected</div>
                         <div className="text-xs text-white/55">
-                          Best for{" "}
-                          <span className="text-white/80 font-semibold">{p.group_limit}</span> rings
+                          Best for <span className="text-white/80 font-semibold">{p.group_limit}</span> rings
                         </div>
                       </div>
                     )}
@@ -343,7 +343,6 @@ export default function RegisterPage() {
               })}
             </div>
           </div>
-
           <div className="border-t border-white/10 bg-black/20 px-4 sm:px-6 py-4 text-xs text-white/60">
             You'll submit payment via UPI on the next screen.
           </div>
@@ -367,24 +366,62 @@ export default function RegisterPage() {
                 />
               </Field>
 
-              <Field label="DOB * (DD/MM/YYYY)">
+              <Field label="DOB (DD/MM/YYYY) *">
                 <input
                   value={form.dob}
-                  onChange={(e) => updateField("dob", e.target.value)}
+                  onChange={(e) => {
+                    let value = e.target.value.replace(/\D/g, ""); // Remove non-digits
+                    if (value.length > 8) value = value.slice(0, 8);
+                    
+                    // Auto-format as DD/MM/YYYY
+                    if (value.length >= 2) {
+                      value = value.slice(0, 2) + "/" + value.slice(2);
+                    }
+                    if (value.length >= 5) {
+                      value = value.slice(0, 5) + "/" + value.slice(5);
+                    }
+                    
+                    updateField("dob", value);
+                  }}
                   type="text"
+                  inputMode="numeric"
                   className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white placeholder:text-white/40 outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-white/15"
-                  placeholder="eg: 15/05/1995"
+                  placeholder="DD/MM/YYYY"
+                  maxLength={10}
                 />
               </Field>
 
+              {/* Email with live duplicate check */}
               <Field label="Email *">
                 <input
                   value={form.email}
-                  onChange={(e) => updateField("email", e.target.value)}
+                  onChange={(e) => {
+                    updateField("email", e.target.value);
+                    setMessage(null);
+                  }}
                   type="email"
-                  className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white placeholder:text-white/40 outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-white/15"
+                  className={`w-full rounded-2xl border bg-black/35 px-4 py-3 text-white placeholder:text-white/40 outline-none focus:ring-2 focus:ring-blue-500/50 transition ${
+                    message?.type === "info" ? "border-yellow-500/50" : "border-white/10 focus:border-white/15"
+                  }`}
                   placeholder="you@email.com"
                 />
+                {/* Inline email message */}
+                {message && (
+                  <div className={`mt-2 flex items-center justify-between rounded-xl px-3 py-2 text-xs ${
+                    message.type === "info"
+                      ? "bg-yellow-500/10 border border-yellow-500/20 text-yellow-200"
+                      : message.type === "error"
+                      ? "bg-red-500/10 border border-red-500/20 text-red-200"
+                      : "bg-green-500/10 border border-green-500/20 text-green-200"
+                  }`}>
+                    <span>{message.text}</span>
+                    {message.action && (
+                      <a href={message.action.href} className="ml-3 font-semibold underline whitespace-nowrap">
+                        {message.action.label}
+                      </a>
+                    )}
+                  </div>
+                )}
               </Field>
 
               {(mode === "instagram" || mode === "all") && (
@@ -435,21 +472,25 @@ export default function RegisterPage() {
                   value={form.confirmPassword}
                   onChange={(e) => updateField("confirmPassword", e.target.value)}
                   type="password"
-                  className="w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white placeholder:text-white/40 outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-white/15"
+                  className={`w-full rounded-2xl border bg-black/35 px-4 py-3 text-white placeholder:text-white/40 outline-none focus:ring-2 focus:ring-blue-500/50 transition ${
+                    form.confirmPassword && form.password !== form.confirmPassword
+                      ? "border-red-500/50"
+                      : "border-white/10 focus:border-white/15"
+                  }`}
                   placeholder="Re-enter password"
                 />
+                {form.confirmPassword && form.password !== form.confirmPassword && (
+                  <p className="mt-1.5 text-xs text-red-400">Passwords don't match</p>
+                )}
               </Field>
             </div>
 
             <div className="mt-8 flex items-center justify-between flex-wrap gap-4">
               <p className="text-sm text-white/65">
                 Membership fee:{" "}
-                <span className="font-semibold text-white">
-                  ₹{selectedPlan ? selectedPlan.price : "--"}
-                </span>{" "}
+                <span className="font-semibold text-white">₹{selectedPlan ? selectedPlan.price : "--"}</span>{" "}
                 (manual UPI for now)
               </p>
-
               <button
                 onClick={handlePayNow}
                 disabled={!isValid || submitting}
@@ -465,7 +506,6 @@ export default function RegisterPage() {
               </button>
             </div>
           </div>
-
           <div className="border-t border-white/10 bg-black/20 px-4 sm:px-6 py-4 text-xs text-white/60">
             After payment submission, admin will verify and approve your membership.
           </div>
@@ -480,10 +520,7 @@ export default function RegisterPage() {
 }
 
 function ModeButton({
-  active,
-  onClick,
-  children,
-  icon,
+  active, onClick, children, icon,
 }: {
   active: boolean;
   onClick: () => void;

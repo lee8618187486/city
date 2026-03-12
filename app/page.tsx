@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import Intro from "./components/Intro";
- 
+
 type Group = {
   id: string;
   title: string;
@@ -42,11 +42,9 @@ export default function Home() {
   return (
     <main className="min-h-screen bg-black text-white">
       {/* VIDEO INTRO */}
-    
       <Intro />
-      
 
-       {/* BANNER */}
+      {/* BANNER */}
       <section className="relative w-full overflow-hidden">
         <div className="relative w-full h-[80px] sm:h-[120px] md:h-[180px] lg:h-[280px]">
           <img
@@ -59,37 +57,6 @@ export default function Home() {
         </div>
       </section>
 
-      {/* NAVBAR */}
-      <nav className="border-y border-white/10 bg-black/80 backdrop-blur">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="h-[50px] sm:h-[60px] flex items-center justify-center">
-            <div className="flex flex-wrap items-center justify-center gap-x-3 sm:gap-x-6 lg:gap-x-10 gap-y-1 text-xs sm:text-sm lg:text-[15px] tracking-wide text-white/80">
-              <a className="hover:text-white transition" href="/">
-                Home
-              </a>
-              <a className="hover:text-white transition" href="/join">
-                Join
-              </a>
-              <a className="hover:text-white transition" href="/register">
-                Register
-              </a>
-              <a className="hover:text-white transition" href="/exclusive">
-                Exclusive
-              </a>
-              <a className="hover:text-white transition" href="/about">
-                About
-              </a>
-              <a className="hover:text-white transition" href="/contact">
-                Contact Us
-              </a>
-              <a className="hover:text-white transition" href="/complaint">
-                Raise Complaint
-              </a>
-            </div>
-          </div>
-        </div>
-      </nav>
-
       {/* HERO - 3 BOXES (Join, Register, Exclusive) */}
       <section className="max-w-6xl mx-auto px-4 sm:px-6 py-8 sm:py-12 lg:py-14">
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6 md:gap-6 lg:gap-10">
@@ -101,12 +68,11 @@ export default function Home() {
             <div className="relative">
               <div className="text-xs uppercase tracking-[0.18em] text-white/50">Join</div>
               <h2 className="mt-3 text-2xl sm:text-3xl font-semibold tracking-tight">
-                Discover rings that fit you.
+                Find your circle.
               </h2>
               <p className="mt-4 text-xs sm:text-sm text-white/70 leading-relaxed">
-                Explore curated communities by <span className="text-white">city</span> and{" "}
-                <span className="text-white">interest</span>. Open a ring, request to join,
-                and we'll connect you on the right platform.
+                Discover rings by <span className="text-white">city</span> and{" "}
+                <span className="text-white">interest</span>. Step into communities that match you.
               </p>
 
               <div className="mt-5 sm:mt-7 flex items-center gap-3 sm:gap-4">
@@ -128,10 +94,11 @@ export default function Home() {
 
             <div className="relative">
               <div className="text-xs uppercase tracking-[0.18em] text-white/50">Register</div>
-              <h2 className="mt-3 text-2xl sm:text-3xl font-semibold tracking-tight">Become a verified member.</h2>
+              <h2 className="mt-3 text-2xl sm:text-3xl font-semibold tracking-tight">
+                Become a verified member.
+              </h2>
               <p className="mt-4 text-xs sm:text-sm text-white/70 leading-relaxed">
-                Register once, choose your network (Instagram / WhatsApp / Telegram), pick a plan,
-                and submit payment. Admin verifies and activates membership.
+                Create your profile, choose your network, and unlock private rings.
               </p>
 
               <div className="mt-5 sm:mt-7 flex items-center gap-3 sm:gap-4">
@@ -153,10 +120,11 @@ export default function Home() {
 
             <div className="relative">
               <div className="text-xs uppercase tracking-[0.18em] text-white/50">Exclusive</div>
-              <h2 className="mt-3 text-2xl sm:text-3xl font-semibold tracking-tight">Premium membership access.</h2>
+              <h2 className="mt-3 text-2xl sm:text-3xl font-semibold tracking-tight">
+                Join exclusive groups.
+              </h2>
               <p className="mt-4 text-xs sm:text-sm text-white/70 leading-relaxed">
-                Apply for exclusive premium groups with curated networks. Premium members enjoy priority access,
-                advanced features, and exclusive community benefits.
+                Access exclusive groups available to members only.
               </p>
 
               <div className="mt-5 sm:mt-7 flex items-center gap-3 sm:gap-4">
@@ -187,8 +155,6 @@ export default function Home() {
         </div>
       </footer>
     </main>
-
-    
   );
 }
 

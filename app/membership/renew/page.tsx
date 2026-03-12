@@ -19,8 +19,13 @@ export default function RenewMembership() {
   const router = useRouter();
   const [plans, setPlans] = useState<PlanRow[]>([]);
   const [loading, setLoading] = useState(true);
+  const [networkMode, setNetworkMode] = useState<string>("instagram");
 
   useEffect(() => {
+    // Read which network is being renewed so payment page updates the right subscription
+    const mode = localStorage.getItem("cityring_renew_network_mode");
+    if (mode) setNetworkMode(mode);
+
     async function load() {
       setLoading(true);
       const { data, error } = await supabase
@@ -48,13 +53,14 @@ export default function RenewMembership() {
       })
     );
 
-    // draft not strictly required for renewal, but ok
+    // Include network mode so payment page updates the correct subscription
     localStorage.setItem(
       "cityring_register_draft",
       JSON.stringify({
         plan_id: plan.id,
         plan_price: plan.price,
         plan_group_limit: plan.group_limit,
+        mode: networkMode,
       })
     );
 

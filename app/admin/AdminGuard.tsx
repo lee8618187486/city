@@ -2,69 +2,74 @@
 
 import { ReactNode, useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
-import { supabase } from "../../lib/supabaseClient";
+import { supabase } from "@/lib/supabaseClient";
+
+const ADMIN_EMAIL = "likith200305@gmail.com";
 
 export default function AdminGuard({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
+  const [isAdmin, setIsAdmin] = useState(false);
   const [checking, setChecking] = useState(true);
 
   useEffect(() => {
-    // Allow login page to render without a session
     if (pathname === "/admin/login") {
       setChecking(false);
       return;
     }
 
-    let cancelled = false;
-
-    async function run() {
+    async function checkAuth() {
       try {
-        const { data: sessionData, error: sessErr } = await supabase.auth.getSession();
-        if (sessErr) throw sessErr;
-
-        const user = sessionData.session?.user;
-        const email = user?.email ?? null;
-
-        if (!email) {
+        const { data: { session } } = await supabase.auth.getSession();
+        
+        if (session?.user?.email === ADMIN_EMAIL) {
+          setIsAdmin(true);
+          setChecking(false);
+        } else {
+          setIsAdmin(false);
+          setChecking(false);
           router.replace("/admin/login");
-          return;
         }
-
-        // Check admins table
-        const { data: adminRow, error: adminErr } = await supabase
-          .from("admins")
-          .select("email")
-          .eq("email", email)
-          .maybeSingle();
-
-        if (adminErr) throw adminErr;
-
-        if (!adminRow) {
-          // Not an admin => sign out and send to login
-          await supabase.auth.signOut();
-          router.replace("/admin/login");
-          return;
-        }
-      } catch (e) {
-        console.error("AdminGuard error:", e);
+      } catch (error) {
+        console.error("Auth check error:", error);
+        setIsAdmin(false);
+        setChecking(false);
         router.replace("/admin/login");
-      } finally {
-        if (!cancelled) setChecking(false);
       }
     }
 
-    run();
+    checkAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      (event, session) => {
+        if (session?.user?.email === ADMIN_EMAIL) {
+          setIsAdmin(true);
+        } else {
+          setIsAdmin(false);
+          if (pathname !== "/admin/login") {
+            router.replace("/admin/login");
+          }
+        }
+      }
+    );
 
     return () => {
-      cancelled = true;
+      subscription?.unsubscribe();
     };
   }, [pathname, router]);
 
-  if (checking) {
+  if (checking && pathname !== "/admin/login") {
     return (
-      <div className="min-h-screen bg-zinc-50 text-zinc-900 flex items-center justify-center">
-        <div className="text-zinc-600">Checking admin access…</div>
+      <div className="min-h-screen bg-[#07070A] text-white flex items-center justify-center">
+        <div className="text-white/40 text-sm animate-pulse">Checking admin access…</div>
+      </div>
+    );
+  }
+
+  if (!isAdmin && pathname !== "/admin/login") {
+    return (
+      <div className="min-h-screen bg-[#07070A] text-white flex items-center justify-center">
+        <div className="text-white/40 text-sm animate-pulse">Redirecting…</div>
       </div>
     );
   }

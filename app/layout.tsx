@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 import Container from "./components/Container";
+import Navbar from "./components/Navbar";
+import { AuthProvider } from "./lib/auth-context";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -19,14 +21,12 @@ export const metadata: Metadata = {
   description: "Private membership circles",
 };
 
-
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
   maximumScale: 5,
   userScalable: true,
 };
-
 
 export default function RootLayout({
   children,
@@ -35,26 +35,22 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-
       <body
         className={`
           ${geistSans.variable}
           ${geistMono.variable}
           antialiased
-
           min-h-screen
           overflow-x-hidden
         `}
       >
-
-        <Container>
-
-          {children}
-
-        </Container>
-
+        <AuthProvider>
+          <Container>
+            <Navbar />
+            {children}
+          </Container>
+        </AuthProvider>
       </body>
-
     </html>
   );
 }

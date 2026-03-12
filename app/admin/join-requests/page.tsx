@@ -7,6 +7,7 @@ type JoinRequestRow = {
   id: string;
   status: "pending" | "approved" | "rejected" | string;
   created_at: string;
+  network_mode: string | null;
 
   profile: {
     id: string;
@@ -42,6 +43,7 @@ export default function AdminJoinRequestsPage() {
         id,
         status,
         created_at,
+        network_mode,
         profile:profiles ( id, name, email, instagram, whatsapp, telegram ),
         group:groups ( id, title, city )
       `
@@ -65,6 +67,16 @@ export default function AdminJoinRequestsPage() {
     const { error } = await supabase.from("join_requests").update({ status }).eq("id", id);
 
     if (!error) {
+      // FIX #6: If rejected, refund the group slot back to the subscription
+      if (status === "rejected") {
+        const row = rows.find((r) => r.id === id);
+        if (row?.profile?.id && row?.network_mode) {
+          await supabase.rpc("decrement_groups_used", {
+            _profile_id: row.profile.id,
+            _network_mode: row.network_mode,
+          });
+        }
+      }
       setRows((prev) => prev.filter((r) => r.id !== id));
     } else {
       console.error(error);
@@ -114,6 +126,11 @@ export default function AdminJoinRequestsPage() {
                     {r.group && (
                       <div>
                         Group: <span className="font-medium">{r.group.title}</span> — {r.group.city}
+                      </div>
+                    )}
+                    {r.network_mode && (
+                      <div className="font-semibold text-blue-700">
+                        Joining via: {r.network_mode === "all" ? "All Networks" : r.network_mode.charAt(0).toUpperCase() + r.network_mode.slice(1)}
                       </div>
                     )}
                     {r.profile?.instagram && <div>Instagram: {r.profile.instagram}</div>}

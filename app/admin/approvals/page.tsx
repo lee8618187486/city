@@ -14,6 +14,8 @@ type Profile = {
   payment_status: string;
   plan_id?: string | null;
   plan_price?: number | null;
+  subscription_id?: string | null;
+  network_mode?: string | null;
 };
 
 export default function AdminApprovalsPage() {
@@ -28,14 +30,14 @@ export default function AdminApprovalsPage() {
     setLoading(true);
     setLoadError(null);
 
+    // FIX #2: Query via subscriptions to catch both new members AND existing members adding a network
     const { data, error } = await supabase
-      .from("profiles")
-      .select("*")
-      .eq("payment_status", "pending")
-      .order("created_at", { ascending: false });
+      .from("subscriptions")
+      .select("id, network_mode, upi_txn_id, plan_id, plan_price, profile:profiles(id, name, email, instagram, whatsapp, telegram, upi_txn_id, payment_status, plan_id, plan_price)")
+      .eq("status", "pending_approval")
+      .order("updated_at", { ascending: false });
 
     if (error) {
-      // ✅ Better logging (won’t show as {} )
       console.error("loadPending failed:", {
         message: error.message,
         details: (error as any)?.details,
@@ -43,14 +45,23 @@ export default function AdminApprovalsPage() {
         code: (error as any)?.code,
         raw: error,
       });
-
       setUsers([]);
       setLoadError(error.message || "Failed to load pending approvals.");
       setLoading(false);
       return;
     }
 
-    setUsers((data as Profile[]) || []);
+    // Flatten: merge subscription info into profile shape
+    const flattened: Profile[] = (data || []).map((row: any) => ({
+      ...row.profile,
+      upi_txn_id: row.upi_txn_id || row.profile?.upi_txn_id,
+      plan_id: row.plan_id || row.profile?.plan_id,
+      plan_price: row.plan_price || row.profile?.plan_price,
+      subscription_id: row.id,
+      network_mode: row.network_mode,
+    }));
+
+    setUsers(flattened);
     setLoading(false);
   }
 
@@ -84,7 +95,13 @@ export default function AdminApprovalsPage() {
         return;
       }
 
-      // ✅ 2) Activate subscription (very important for join-limit system)
+      // FIX #3: Only activate THIS specific subscription by ID — not all subscriptions for the profile
+      const user = users.find((u) => u.id === profileId);
+      const subId = user?.subscription_id;
+      if (!subId) {
+        alert("Could not find subscription ID. Please refresh and try again.");
+        return;
+      }
       const { error: subErr } = await supabase
         .from("subscriptions")
         .update({
@@ -92,7 +109,7 @@ export default function AdminApprovalsPage() {
           groups_used: 0,
           updated_at: new Date().toISOString(),
         })
-        .eq("profile_id", profileId);
+        .eq("id", subId);
 
       if (subErr) {
         console.error("Activate subscription failed:", {
@@ -103,7 +120,9 @@ export default function AdminApprovalsPage() {
           raw: subErr,
         });
         alert(
-          `Approved profile, but subscription activation failed: ${subErr.message}\n\nMake sure payment page is creating subscriptions.`
+          `Approved profile, but subscription activation failed: ${subErr.message}
+
+Make sure payment page is creating subscriptions.`
         );
         return;
       }
@@ -120,12 +139,11 @@ export default function AdminApprovalsPage() {
     setProcessingId(profileId);
 
     try {
-      // ✅ 1) Reject profile
+      // FIX: Only update payment_status — is_member handled below after subscription check
       const { error: profErr } = await supabase
         .from("profiles")
         .update({
           payment_status: "rejected",
-          is_member: false,
         })
         .eq("id", profileId);
 
@@ -141,24 +159,36 @@ export default function AdminApprovalsPage() {
         return;
       }
 
-      // ✅ 2) Mark subscription rejected (if exists)
-      const { error: subErr } = await supabase
-        .from("subscriptions")
-        .update({
-          status: "rejected",
-          updated_at: new Date().toISOString(),
-        })
-        .eq("profile_id", profileId);
+      // FIX #4a: Only reject THIS specific subscription by its ID
+      const userToReject = users.find((u) => u.id === profileId);
+      const subIdToReject = userToReject?.subscription_id;
+      if (subIdToReject) {
+        const { error: subErr } = await supabase
+          .from("subscriptions")
+          .update({
+            status: "rejected",
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", subIdToReject);
+        if (subErr) {
+          console.error("Mark subscription rejected failed (ignored):", {
+            message: subErr.message,
+            details: (subErr as any)?.details,
+            hint: (subErr as any)?.hint,
+            code: (subErr as any)?.code,
+            raw: subErr,
+          });
+        }
+      }
 
-      // If no subscription exists, we can ignore, but log it
-      if (subErr) {
-        console.error("Mark subscription rejected failed (ignored):", {
-          message: subErr.message,
-          details: (subErr as any)?.details,
-          hint: (subErr as any)?.hint,
-          code: (subErr as any)?.code,
-          raw: subErr,
-        });
+      // FIX #4b: Only set is_member=false if NO other active subscriptions exist
+      const { data: otherActive } = await supabase
+        .from("subscriptions")
+        .select("id")
+        .eq("profile_id", profileId)
+        .eq("status", "active");
+      if (!otherActive || otherActive.length === 0) {
+        await supabase.from("profiles").update({ is_member: false }).eq("id", profileId);
       }
 
       // ✅ remove from list
@@ -210,6 +240,7 @@ export default function AdminApprovalsPage() {
                 {u.whatsapp && <div>WhatsApp: {u.whatsapp}</div>}
                 {u.telegram && <div>Telegram: {u.telegram}</div>}
                 {u.upi_txn_id && <div>Txn ID: {u.upi_txn_id}</div>}
+                {u.network_mode && <div>Network: <b>{u.network_mode}</b></div>}
                 {u.plan_id && <div>Plan: {u.plan_id}</div>}
                 {typeof u.plan_price === "number" && <div>Amount: ₹{u.plan_price}</div>}
               </div>

@@ -3,130 +3,110 @@
 import { useState } from "react";
 import { supabase } from "../../lib/supabaseClient";
 
-type Mode = "instagram" | "whatsapp" | "telegram";
-
 export default function ForgotPasswordPage() {
-  const [mode, setMode] = useState<Mode>("instagram");
-  const [value, setValue] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
+  const [email, setEmail] = useState("");
+  const [status, setStatus] = useState<{ type: "success" | "error"; text: string } | null>(null);
   const [loading, setLoading] = useState(false);
 
   async function sendLink() {
     setStatus(null);
-    const clean = value.trim();
-    if (!clean) {
-      setStatus("Please enter your details.");
+    const clean = email.trim().toLowerCase();
+    if (!clean || !clean.includes("@")) {
+      setStatus({ type: "error", text: "Please enter a valid email address." });
       return;
     }
 
     setLoading(true);
     try {
-      // 1) Find email from your profiles table using the handle/number
-      const { data, error } = await supabase.rpc("get_email_for_identifier", {
-        _identifier_type: mode,
-        _identifier_value: clean,
+      const { error } = await supabase.auth.resetPasswordForEmail(clean, {
+        redirectTo: `${window.location.origin}/reset-password`,
       });
 
       if (error) throw error;
 
-      const email = Array.isArray(data) ? data[0]?.email : (data as any)?.email;
-
-      // Security-friendly: do not reveal if user exists
-      if (!email) {
-        setStatus("If your account exists, a reset link will be sent to your email.");
-        setLoading(false);
-        return;
-      }
-
-      // 2) Ask Supabase Auth to send the reset link to that email (FREE)
-      const { error: resetErr } = await supabase.auth.resetPasswordForEmail(email, {
-        redirectTo: `${window.location.origin}/reset-password`,
+      setStatus({
+        type: "success",
+        text: "✅ Reset link sent! Check your inbox (and spam folder).",
       });
-
-      if (resetErr) throw resetErr;
-
-      setStatus("✅ Reset link sent to your email. Please check inbox/spam.");
-      setValue("");
+      setEmail("");
     } catch (e: any) {
-      setStatus(e?.message || "Something went wrong.");
+      setStatus({ type: "error", text: e?.message || "Something went wrong. Please try again." });
     } finally {
       setLoading(false);
     }
   }
 
   return (
-    <main className="min-h-screen bg-zinc-50 text-zinc-900">
-      <div className="max-w-xl mx-auto px-4 sm:px-6 py-12">
-        <h1 className="text-3xl font-bold">Forgot Password</h1>
-        <p className="mt-2 text-zinc-600">
-          Enter your Instagram/WhatsApp/Telegram and we’ll email you a reset link.
+    <main className="min-h-screen text-white">
+      {/* Background */}
+      <div className="fixed inset-0 -z-10 bg-[#07070A]">
+        <div className="absolute inset-0 bg-[radial-gradient(1200px_600px_at_20%_10%,rgba(255,255,255,0.10),transparent_60%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(900px_500px_at_80%_30%,rgba(255,255,255,0.08),transparent_55%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(900px_500px_at_50%_100%,rgba(255,255,255,0.06),transparent_60%)]" />
+      </div>
+
+      <div className="max-w-md mx-auto px-4 sm:px-6 py-24">
+
+        {/* Back link */}
+        <a href="/login" className="text-sm text-white/50 hover:text-white transition">
+          ← Back to Sign in
+        </a>
+
+        <h1 className="mt-6 text-3xl font-bold tracking-tight">Forgot Password</h1>
+        <p className="mt-2 text-white/60">
+          Enter your registered email and we'll send you a reset link.
         </p>
 
-        <div className="mt-8 bg-white border rounded-2xl shadow-sm p-6 space-y-4">
-          <div className="grid grid-cols-3 gap-3">
-            <button
-              type="button"
-              onClick={() => setMode("instagram")}
-              className={`rounded-xl border px-4 py-3 text-sm ${
-                mode === "instagram" ? "border-blue-500 bg-blue-50 text-blue-700" : "border-zinc-200"
-              }`}
-            >
-              Instagram
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("whatsapp")}
-              className={`rounded-xl border px-4 py-3 text-sm ${
-                mode === "whatsapp" ? "border-blue-500 bg-blue-50 text-blue-700" : "border-zinc-200"
-              }`}
-            >
-              WhatsApp
-            </button>
-            <button
-              type="button"
-              onClick={() => setMode("telegram")}
-              className={`rounded-xl border px-4 py-3 text-sm ${
-                mode === "telegram" ? "border-blue-500 bg-blue-50 text-blue-700" : "border-zinc-200"
-              }`}
-            >
-              Telegram
-            </button>
-          </div>
+        <div className="mt-8 rounded-2xl sm:rounded-3xl border border-white/10 bg-white/5 backdrop-blur shadow-sm overflow-hidden">
+          <div className="p-6 space-y-4">
 
-          <div>
-            <label className="text-sm font-medium text-zinc-700">
-              {mode === "instagram"
-                ? "Instagram username"
-                : mode === "whatsapp"
-                ? "WhatsApp number"
-                : "Telegram username/number"}{" "}
-              *
+            <label className="block">
+              <span className="text-sm font-medium text-white/80">Email address</span>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                onKeyDown={(e) => e.key === "Enter" && sendLink()}
+                className="mt-2 w-full rounded-2xl border border-white/10 bg-black/35 px-4 py-3 text-white placeholder:text-white/40 outline-none focus:ring-2 focus:ring-blue-500/50 focus:border-white/15 transition"
+                placeholder="you@email.com"
+              />
             </label>
-            <input
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              className="mt-2 w-full rounded-xl border px-4 py-3 outline-none focus:ring-2 focus:ring-blue-400"
-              placeholder={mode === "instagram" ? "eg: yourhandle" : mode === "whatsapp" ? "eg: 9876543210" : "eg: @username"}
-            />
+
+            {status && (
+              <div className={`rounded-xl border px-4 py-3 text-sm ${
+                status.type === "success"
+                  ? "border-green-500/20 bg-green-500/10 text-green-200"
+                  : "border-red-500/20 bg-red-500/10 text-red-200"
+              }`}>
+                {status.text}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={sendLink}
+              disabled={loading}
+              className={`w-full py-3 rounded-2xl font-semibold transition ${
+                loading
+                  ? "bg-white/10 text-white/40 cursor-not-allowed"
+                  : "bg-white text-black hover:bg-white/90"
+              }`}
+            >
+              {loading ? "Sending…" : "Send Reset Link"}
+            </button>
           </div>
 
-          <button
-            type="button"
-            onClick={sendLink}
-            disabled={loading}
-            className={`w-full px-4 sm:px-6 py-3 rounded-xl text-white shadow-md ${
-              loading ? "bg-zinc-300 cursor-not-allowed" : "bg-blue-600 hover:bg-blue-700"
-            }`}
-          >
-            {loading ? "Sending..." : "Send reset link"}
-          </button>
-
-          {status && <p className="text-sm text-zinc-700">{status}</p>}
-
-          <p className="text-xs text-zinc-500">
-            The reset link will be sent to the email you used during registration.
-          </p>
+          <div className="border-t border-white/10 bg-black/20 px-6 py-4 text-xs text-white/50">
+            The link will be sent to the email you used during registration.
+          </div>
         </div>
+
+        <p className="mt-6 text-center text-sm text-white/40">
+          Remembered your password?{" "}
+          <a href="/login" className="text-white/70 hover:text-white transition font-medium">
+            Sign in
+          </a>
+        </p>
       </div>
     </main>
   );

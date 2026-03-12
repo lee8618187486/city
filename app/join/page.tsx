@@ -132,22 +132,7 @@ export default function JoinPage() {
         <div className="absolute inset-0 bg-[radial-gradient(900px_500px_at_50%_100%,rgba(255,255,255,0.06),transparent_60%)]" />
         <div className="absolute inset-0 opacity-30 bg-[linear-gradient(to_bottom,transparent,rgba(255,255,255,0.04))]" />
       </div>
-      {/* NAVBAR */}
-      <nav className="border-y border-white/10 bg-black/80 backdrop-blur">
-        <div className="max-w-6xl mx-auto px-4 sm:px-6">
-          <div className="h-[50px] sm:h-[60px] flex items-center justify-center">
-            <div className="flex flex-wrap items-center justify-center gap-x-3 sm:gap-x-6 lg:gap-x-10 gap-y-1 text-xs sm:text-sm lg:text-[15px] tracking-wide text-white/80">
-              <a className="hover:text-white transition" href="/">Home</a>
-              <a className="hover:text-white transition" href="/join">Join</a>
-              <a className="hover:text-white transition" href="/register">Register</a>
-              <a className="hover:text-white transition" href="/exclusive">Exclusive</a>
-              <a className="hover:text-white transition" href="/about">About</a>
-              <a className="hover:text-white transition" href="/contact">Contact Us</a>
-              <a className="hover:text-white transition" href="/complaint">Raise Complaint</a>
-            </div>
-          </div>
-        </div>
-      </nav>
+       
 
       <div className="max-w-6xl mx-auto px-4 sm:px-6 py-12 md:py-16">
         {/* Header */}
@@ -170,7 +155,7 @@ export default function JoinPage() {
         </div>
 
         {/* Filters */}
-        <div className="mt-8 rounded-2xl sm:rounded-3xl border border-white/10 bg-white/5 backdrop-blur shadow-sm overflow-visible">
+        <div className="mt-8 rounded-2xl sm:rounded-3xl border border-white/10 bg-white/5 backdrop-blur shadow-sm overflow-visible relative z-10">
           <div className="p-6">
             <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
               {/* Interest dropdown */}
@@ -198,7 +183,7 @@ export default function JoinPage() {
                 </button>
 
                 {interestOpen && (
-                  <div className="absolute z-20 mt-2 w-full rounded-2xl sm:rounded-3xl border border-white/10 bg-black/90 backdrop-blur shadow-2xl overflow-hidden">
+                  <div className="absolute z-50 mt-2 w-full rounded-2xl sm:rounded-3xl border border-white/10 bg-black/90 backdrop-blur shadow-2xl overflow-hidden">
                     <div className="p-3 border-b border-white/10">
                       <input
                         value={interestSearch}
@@ -261,7 +246,7 @@ export default function JoinPage() {
                 </button>
 
                 {cityOpen && (
-                  <div className="absolute z-20 mt-2 w-full rounded-2xl sm:rounded-3xl border border-white/10 bg-black/90 backdrop-blur shadow-2xl overflow-hidden">
+                  <div className="absolute z-50 mt-2 w-full rounded-2xl sm:rounded-3xl border border-white/10 bg-black/90 backdrop-blur shadow-2xl overflow-hidden">
                     <div className="p-3 border-b border-white/10">
                       <input
                         value={citySearch}

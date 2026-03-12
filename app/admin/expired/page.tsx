@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { supabase } from "../../../lib/supabaseClient";
 
 type Row = {
+  id: string;  // ✅ FIXED: Added subscription ID
   profile_id: string;
   name: string;
   email: string | null;
@@ -40,12 +41,13 @@ export default function AdminExpiredPage() {
     load();
   }, []);
 
-  async function approveAgain(profileId: string) {
+  // ✅ FIXED: Now accepts subscriptionId and updates only that subscription
+  async function approveAgain(profileId: string, subscriptionId: string) {
     if (processing) return;
-    setProcessing(profileId);
+    setProcessing(subscriptionId);
 
     try {
-      // Mark subscription active + reset used
+      // Mark ONLY THIS subscription active + reset used
       const { error: subErr } = await supabase
         .from("subscriptions")
         .update({
@@ -53,7 +55,7 @@ export default function AdminExpiredPage() {
           groups_used: 0,
           updated_at: new Date().toISOString(),
         })
-        .eq("profile_id", profileId);
+        .eq("id", subscriptionId);  // ✅ CRITICAL FIX: Use subscription ID, not profile_id!
 
       if (subErr) {
         console.error(subErr);
@@ -62,13 +64,22 @@ export default function AdminExpiredPage() {
         return;
       }
 
-      // Keep profile flags consistent (optional)
-      await supabase
-        .from("profiles")
-        .update({ is_member: true, payment_status: "verified" })
-        .eq("id", profileId);
+      // Check if user has other active subscriptions
+      const { data: otherActive } = await supabase
+        .from("subscriptions")
+        .select("id")
+        .eq("profile_id", profileId)
+        .eq("status", "active");
 
-      setRows((prev) => prev.filter((r) => r.profile_id !== profileId));
+      // Update profile only if user has at least one active subscription
+      if (otherActive && otherActive.length > 0) {
+        await supabase
+          .from("profiles")
+          .update({ is_member: true, payment_status: "verified" })
+          .eq("id", profileId);
+      }
+
+      setRows((prev) => prev.filter((r) => r.id !== subscriptionId));
     } finally {
       setProcessing(null);
     }
@@ -103,7 +114,7 @@ export default function AdminExpiredPage() {
 
             return (
               <div
-                key={r.profile_id}
+                key={r.id}  // ✅ FIXED: Use subscription ID as key
                 className="bg-white border rounded-2xl p-5 shadow-sm flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
               >
                 <div>
@@ -117,11 +128,11 @@ export default function AdminExpiredPage() {
                 </div>
 
                 <button
-                  onClick={() => approveAgain(r.profile_id)}
-                  disabled={processing === r.profile_id}
+                  onClick={() => approveAgain(r.profile_id, r.id)}  // ✅ FIXED: Pass subscriptionId
+                  disabled={processing === r.id}  // ✅ FIXED: Check against subscription ID
                   className="px-5 py-2 rounded-xl bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
                 >
-                  {processing === r.profile_id ? "Approving..." : "Approve Again"}
+                  {processing === r.id ? "Approving..." : "Approve Again"}
                 </button>
               </div>
             );
