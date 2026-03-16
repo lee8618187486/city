@@ -133,7 +133,7 @@ export default function ExclusiveGroupDetailPage() {
                 <div className="flex-1">
                   <h2 className="text-xl sm:text-2xl font-bold text-white">About This Exclusive Circle</h2>
                   <p className="mt-3 text-white/60 leading-relaxed text-base">
-                    This is a curated, member-only community with exclusive access and premium benefits. Payment will be handled personally after your application is approved by our admin team. Members enjoy direct network access and personalized onboarding.
+                     Entry is granted through a short application and review process to maintain the quality and intent of the community.
                   </p>
                 </div>
               </div>

@@ -64,6 +64,8 @@ export default function DashboardPage() {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [subscriptions, setSubscriptions] = useState<Subscription[]>([]);
   const [loading, setLoading] = useState(true);
+  const [droppingId, setDroppingId] = useState<string | null>(null);
+  const [confirmDropId, setConfirmDropId] = useState<string | null>(null);
 
   useEffect(() => {
     async function load() {
@@ -108,6 +110,19 @@ export default function DashboardPage() {
     localStorage.setItem("cityring_profile_id", profile.id);
     localStorage.setItem("cityring_add_service_mode", networkMode);
     router.push("/dashboard/add-service");
+  }
+
+  async function dropSubscription(subId: string) {
+    setDroppingId(subId);
+    const { error } = await supabase
+      .from("subscriptions")
+      .delete()
+      .eq("id", subId);
+    if (!error) {
+      setSubscriptions(prev => prev.filter(s => s.id !== subId));
+    }
+    setDroppingId(null);
+    setConfirmDropId(null);
   }
 
   if (loading) {
@@ -340,7 +355,7 @@ export default function DashboardPage() {
                       </div>
                     )}
                     {sub.status === "expired" && (
-                      <div className="px-6 py-4 bg-white/5 border-t border-white/10">
+                      <div className="px-6 py-4 bg-white/5 border-t border-white/10 space-y-2">
                         <button
                           onClick={() => {
                             localStorage.setItem("cityring_profile_id", profile!.id);
@@ -351,6 +366,60 @@ export default function DashboardPage() {
                         >
                           Renew Now
                         </button>
+                        {confirmDropId === sub.id ? (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => dropSubscription(sub.id)}
+                              disabled={droppingId === sub.id}
+                              className="flex-1 px-4 py-2 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 text-sm font-semibold hover:bg-red-500/30 transition disabled:opacity-50"
+                            >
+                              {droppingId === sub.id ? "Dropping…" : "Yes, Drop"}
+                            </button>
+                            <button
+                              onClick={() => setConfirmDropId(null)}
+                              className="flex-1 px-4 py-2 rounded-xl border border-white/20 text-white/60 text-sm font-medium hover:bg-white/10 transition"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDropId(sub.id)}
+                            className="w-full px-4 py-2 rounded-xl border border-red-500/20 text-red-400/70 text-sm font-medium hover:bg-red-500/10 hover:text-red-300 transition"
+                          >
+                            Drop
+                          </button>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Drop button for non-expired statuses */}
+                    {sub.status !== "expired" && (
+                      <div className="px-6 pb-4 pt-0">
+                        {confirmDropId === sub.id ? (
+                          <div className="flex gap-2">
+                            <button
+                              onClick={() => dropSubscription(sub.id)}
+                              disabled={droppingId === sub.id}
+                              className="flex-1 px-4 py-2 rounded-xl bg-red-500/20 border border-red-500/40 text-red-300 text-sm font-semibold hover:bg-red-500/30 transition disabled:opacity-50"
+                            >
+                              {droppingId === sub.id ? "Dropping…" : "Yes, Drop"}
+                            </button>
+                            <button
+                              onClick={() => setConfirmDropId(null)}
+                              className="flex-1 px-4 py-2 rounded-xl border border-white/20 text-white/60 text-sm font-medium hover:bg-white/10 transition"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmDropId(sub.id)}
+                            className="w-full px-4 py-2 rounded-xl border border-red-500/20 text-red-400/70 text-sm font-medium hover:bg-red-500/10 hover:text-red-300 transition"
+                          >
+                            Drop
+                          </button>
+                        )}
                       </div>
                     )}
                   </div>

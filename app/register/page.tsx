@@ -163,10 +163,13 @@ export default function RegisterPage() {
         return;
       }
 
+      // Normalise DOB: convert DD/MM/YYYY → DD-MM-YYYY (the RPC accepts dashes only)
+      const normalisedDob = form.dob.replace(/\//g, "-");
+
       // Create profile via RPC
       const rpcPayload: any = {
         _name: form.name.trim(),
-        _dob: form.dob,
+        _dob: normalisedDob,
         _email: cleanEmail,
         _network_mode: mode,
         _instagram: mode === "instagram" || mode === "all" ? form.instagram.trim() || null : null,
@@ -207,6 +210,10 @@ export default function RegisterPage() {
           plan_group_limit: selectedPlan.group_limit,
         })
       );
+
+      // Sign out immediately — user shouldn't be "logged in" during payment flow.
+      // They created an auth account but still need payment approval first.
+      await supabase.auth.signOut();
 
       window.location.href = "/register/payment";
     } catch (e: any) {
