@@ -253,7 +253,7 @@ export default function JoinNowPage() {
                 {/* Selected contact preview */}
                 {mode && (
                   <div className="mt-5 rounded-xl border border-white/5 bg-black/20 px-4 py-3 flex items-center justify-between">
-                    <p className="text-xs text-white/40">Admin will add you via</p>
+                    <p className="text-xs text-white/40">The joining link will be shared with you via email. Please use it to join.</p>
                     <p className="text-sm font-medium text-white">{getContactValue(profile, mode)}</p>
                   </div>
                 )}
@@ -292,7 +292,7 @@ export default function JoinNowPage() {
               </div>
 
               <div className="border-t border-white/10 bg-black/20 px-4 sm:px-6 py-4 text-xs text-white/60">
-                Admin will add you to the group after reviewing your request.
+                Upon review of your request, a joining link will be sent to your registered email address.
               </div>
             </div>
           </div>

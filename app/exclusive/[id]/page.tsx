@@ -131,10 +131,25 @@ export default function ExclusiveGroupDetailPage() {
               <div className="flex items-start gap-4">
                 <div className="h-2 w-2 rounded-full bg-amber-400 mt-2 flex-shrink-0" />
                 <div className="flex-1">
-                  <h2 className="text-xl sm:text-2xl font-bold text-white">About This Exclusive Circle</h2>
-                  <p className="mt-3 text-white/60 leading-relaxed text-base">
-                     Entry is granted through a short application and review process to maintain the quality and intent of the community.
-                  </p>
+                 <h2 className="text-xl sm:text-2xl font-bold text-white">About This Exclusive Circle</h2>
+<p className="mt-3 text-white/60 leading-relaxed text-base">
+   
+</p>
+<ul className="mt-4 space-y-3">
+  {[
+    "Entry is granted through a short application and review process to maintain the quality and intent of the community.",
+    "Skip full price. Members get discounted entry to city events before they open to anyone else.",
+    "Got an idea for an event? We promote it. You run it.",
+    "Invites to events that never go public — only members ever know they happened.",
+    "Every member is vetted. So the people you meet here are actually worth meeting.",
+    "This circle stays small on purpose. Apply to be considered.",
+  ].map((point) => (
+    <li key={point} className="flex items-start gap-3 text-white/60 text-base">
+      <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-amber-400 shrink-0" />
+      <span>{point}</span>
+    </li>
+  ))}
+</ul>
                 </div>
               </div>
             </div>

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "../lib/supabaseClient";
 import Intro from "./components/Intro";
 
@@ -16,28 +16,73 @@ type Group = {
   created_at?: string;
 };
 
+type Section = {
+  id: string;
+  title: string;
+  subtitle: string | null;
+  sort_order: number;
+  groups: Group[];
+};
+
 export default function Home() {
-  const [groups, setGroups] = useState<Group[]>([]);
+  const [sections, setSections] = useState<Section[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     async function load() {
-      const { data, error } = await supabase
-        .from("groups")
-        .select("*")
-        .eq("is_active", true)
-        .order("created_at", { ascending: false })
-        .limit(60);
+      // Load sections — no is_active filter, admin controls visibility by deleting
+      const { data: secData, error: secErr } = await supabase
+        .from("homepage_sections")
+        .select("id,title,subtitle,sort_order")
+        .order("sort_order", { ascending: true });
 
-      if (error) console.error("Home groups load error:", error);
-      setGroups((data as Group[]) || []);
+      if (secErr) {
+        console.error("Sections load error:", secErr);
+        setLoading(false);
+        return;
+      }
+
+      // Load section items — separate query to avoid join failures
+      const { data: itemData, error: itemErr } = await supabase
+        .from("homepage_section_items")
+        .select("section_id, sort_order, group_id");
+
+      if (itemErr) {
+        console.error("Items load error:", itemErr);
+        setLoading(false);
+        return;
+      }
+
+      // Load all groups referenced by items
+      const groupIds = [...new Set((itemData ?? []).map((i: any) => i.group_id))];
+      let groupMap: Record<string, Group> = {};
+
+      if (groupIds.length > 0) {
+        const { data: groupData } = await supabase
+          .from("groups")
+          .select("id,title,city,interest,description,poster_url,is_active")
+          .in("id", groupIds);
+
+        for (const g of groupData ?? []) {
+          groupMap[(g as any).id] = g as Group;
+        }
+      }
+
+      // Build sections with their groups in sort order
+      const built: Section[] = (secData ?? []).map((s: any) => {
+        const items = (itemData ?? [])
+          .filter((i: any) => i.section_id === s.id)
+          .sort((a: any, b: any) => a.sort_order - b.sort_order)
+          .map((i: any) => groupMap[i.group_id])
+          .filter(Boolean) as Group[];
+        return { id: s.id, title: s.title, subtitle: s.subtitle, sort_order: s.sort_order, groups: items };
+      });
+
+      setSections(built);
       setLoading(false);
     }
     load();
   }, []);
-
-  const trending = useMemo(() => groups.slice(0, 20), [groups]);
-  const newRings = useMemo(() => groups.slice(0, 20), [groups]);
 
   return (
     <main className="min-h-screen bg-black text-white">
@@ -141,11 +186,17 @@ export default function Home() {
         </div>
       </section>
 
-      {/* TRENDING & NEW RINGS */}
-      <section className="max-w-6xl mx-auto px-4 sm:px-6 pb-12 sm:pb-16">
-        <Row title="Trending Rings" subtitle="Hand-picked rings people are joining right now." items={trending} loading={loading} />
-        <div className="mt-12" />
-        <Row title="New Rings" subtitle="Freshly added rings. Be the first to join." items={newRings} loading={loading} />
+      {/* HOMEPAGE SECTIONS — driven by admin */}
+      <section className="max-w-6xl mx-auto px-4 sm:px-6 pb-12 sm:pb-16 space-y-12">
+        {loading && (
+          <Row title="" subtitle="" items={[]} loading={true} />
+        )}
+        {!loading && sections.length === 0 && (
+          <div className="text-center text-white/40 text-sm py-12">No sections yet.</div>
+        )}
+        {!loading && sections.map((s) => (
+          <Row key={s.id} title={s.title} subtitle={s.subtitle ?? ""} items={s.groups} loading={false} />
+        ))}
       </section>
 
       {/* FOOTER */}
